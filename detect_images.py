@@ -1,6 +1,7 @@
 import sys
 import time
 import os
+import json
 from PIL import Image, ImageDraw
 from models.tiny_yolo import TinyYoloNet
 from utils import *
@@ -36,7 +37,9 @@ def detect_images(cfgfile, weightfile, images_dir, target_dir=None):
                 if img[-4:] in ['.png', '.jpg', 'jpeg']]
     for filename in images:
         imgfile = os.path.join(images_dir, filename)
-        target_file = os.path.join(target_dir, filename)
+        tp_fname = os.path.split(filename)[1]
+        tp_fname = os.path.splitext(tp_fname)[0]
+        target_file = os.path.join(target_dir, tp_fname+'.json')
         img = Image.open(imgfile).convert('RGB')
         sized = img.resize((m.width, m.height))
     
@@ -48,10 +51,47 @@ def detect_images(cfgfile, weightfile, images_dir, target_dir=None):
                 # print('%s: Predicted in %f seconds.' % (imgfile, (finish-start)))
 
         class_names = load_class_names(namesfile)
-        plot_boxes(img, boxes, target_file, class_names)
+        # plot_boxes(img, boxes, target_file, class_names)
+        save_bbox(filename, img, boxes, target_file, class_names)
 
-# def detect(cfgfile, weightfile, imgfile):
-    
+
+# 将标签以 json 的形式输出
+def save_bbox(filename, img, boxes, target_file, class_names):
+    save_obj = {
+        'path':filename,
+        'labeled': False,
+        'size': {'depth':3, 'height': img.height, 'width': img.width},
+        'time_labeled': int(time.time()*1000),
+        'outputs':{'object':[]}
+    }
+    for i in range(len(boxes)):
+        box = boxes[i]
+        x1 = (box[0] - box[2]/2.0) * img.width
+        y1 = (box[1] - box[3]/2.0) * img.height
+        x2 = (box[0] + box[2]/2.0) * img.width
+        y2 = (box[1] + box[3]/2.0) * img.height
+        if len(box)>=7 and class_names:
+            cls_conf = box[5]
+            cls_id = box[6]
+            if class_names[cls_id]!='person':
+                continue
+            save_obj['outputs']['object'].append({
+                'bndbox':{
+                    'xmin': int(x1.item()),
+                    'ymin': int(y1.item()),
+                    'xmax': int(x2.item()),
+                    'ymax': int(y2.item())
+                },
+                'name': 'person'
+            })
+
+    save_obj['labeled'] = len(save_obj['outputs']['object'])>0
+    # print(save_obj)
+    with open(target_file, 'w') as f:
+        json.dump(save_obj, f)
+    print(f"{target_file} finished!" )
+
+
 
 def detect_cv2(cfgfile, weightfile, imgfile):
     import cv2
@@ -137,5 +177,5 @@ if __name__ == '__main__':
         #detect_skimage(cfgfile, weightfile, imgfile)
     else:
         print('Usage: ')
-        print('  python detect.py cfgfile weightfile images_dir target_dir')
+        print('python detect_images.py cfgfile weightfile images_dir target_dir')
         #detect('cfg/tiny-yolo-voc.cfg', 'tiny-yolo-voc.weights', 'data/person.jpg', version=1)
